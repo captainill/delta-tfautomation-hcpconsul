@@ -1,12 +1,8 @@
 locals {
-  vpc_region             = "us-west-2"
-  hvn_region             = "us-west-2"
-  cluster_id             = "consul-quickstart-1652817861937"
-  hvn_id                 = "consul-quickstart-1652817861937-hvn"
-  vpc_id                 = "{{ .VPCID }}"
-  private_route_table_id = "{{ .PrivateRouteTableID }}"
-  private_subnet1        = "{{ .PrivateSubnet1 }}"
-  private_subnet2        = "{{ .PrivateSubnet2 }}"
+  vpc_region = "us-west-2"
+  hvn_region = "us-west-2"
+  cluster_id = "consul-quickstart-1652817861937"
+  hvn_id     = "consul-quickstart-1652817861937-hvn"
 }
 
 terraform {
@@ -63,6 +59,27 @@ provider "kubectl" {
   token                  = data.aws_eks_cluster_auth.cluster.token
   load_config_file       = false
 }
+data "aws_availability_zones" "available" {
+  filter {
+    name   = "zone-type"
+    values = ["availability-zone"]
+  }
+}
+
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "2.78.0"
+
+  name                 = "${local.cluster_id}-vpc"
+  cidr                 = "10.0.0.0/16"
+  azs                  = data.aws_availability_zones.available.names
+  public_subnets       = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  private_subnets      = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
+  enable_dns_hostnames = true
+}
+
 data "aws_eks_cluster" "cluster" {
   name = module.eks.cluster_id
 }
@@ -78,8 +95,8 @@ module "eks" {
 
   cluster_name    = "${local.cluster_id}-eks"
   cluster_version = "1.21"
-  subnets         = [local.private_subnet1, local.private_subnet2]
-  vpc_id          = local.vpc_id
+  subnets         = module.vpc.private_subnets
+  vpc_id          = module.vpc.vpc_id
 
   node_groups = {
     application = {
@@ -105,9 +122,9 @@ module "aws_hcp_consul" {
   version = "~> 0.7.0"
 
   hvn                = hcp_hvn.main
-  vpc_id             = local.vpc_id
-  subnet_ids         = [local.private_subnet1, local.private_subnet2]
-  route_table_ids    = [local.private_route_table_id]
+  vpc_id             = module.vpc.vpc_id
+  subnet_ids         = module.vpc.private_subnets
+  route_table_ids    = module.vpc.private_route_table_ids
   security_group_ids = [module.eks.cluster_primary_security_group_id]
 }
 
